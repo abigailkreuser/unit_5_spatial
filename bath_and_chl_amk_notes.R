@@ -8,7 +8,7 @@
 # L3 is when it has binned nicely to be used in a raster
 
 
-install.packages("mapdata")
+#install.packages("mapdata")
 
 
 library(tidyverse)
@@ -69,3 +69,96 @@ ggsave(GOM_chl_map, file = "figures/GOM_chl_map.png")
 #quick fix for x axis stretching in this region 
 # need to re up these notes 
 # maybe redo on work computer
+
+
+
+## 2022-03-31
+lon_bounds = c(-72, -62)
+lat_bounds = c(39, 47)
+
+bath_m_raw = marmap::getNOAA.bathy(lon1=lon_bounds[1],
+                                   lon2 = lon_bounds[2],
+                                   lat1=lat_bounds[1],
+                                   lat2=lat_bounds[2],
+                                   resolution=4)
+class(bath_m_raw)
+bath_m_df = marmap::fortify.bathy(bath_m_raw)
+head(bath_m_df)
+
+
+bath_m = bath_m_df %>%
+  mutate(depth_m = ifelse(z>20, NA, z)) %>%
+  dplyr::select(-z)
+
+summary(bath_m)
+library(scales)
+
+GOM_bath_map = ggplot()+
+  geom_raster(data = bath_m, aes(x=x, y=y, fill=depth_m), ) + 
+  geom_polygon(data=world_map, aes(x=long, y=lat, group=group),  fill="darkgrey", color=NA)+
+  coord_fixed(1.3, xlim=lon_bounds, ylim=lat_bounds, expand=FALSE) +
+  scale_fill_gradientn(colors=c("black", "darkblue", "lightblue"),
+                       values=scales::rescale(c(-6000, -300, 0)))
+ggsave(GOM_bath_map, file = "figures/GOM_bath_map.png")
+
+
+
+GOM_bath_map2 = ggplot()+
+  #geom_raster(data = bath_m, aes(x=x, y=y, fill=depth_m)) + 
+  geom_contour(data=bath_m, aes(x=x, y=y, z=depth_m), breaks=c(-100), size=0.25)+
+  geom_polygon(data=world_map, aes(x=long, y=lat, group=group), fill="darkgrey", color=NA)+
+  coord_fixed(1.3, xlim=lon_bounds, ylim=lat_bounds, expand=FALSE) +
+  scale_fill_gradientn(colors=c("black", "darkblue", "lightblue"),
+                       values=scales::rescale(c(-6000, -300, 0)))
+ggsave(GOM_bath_map2, file = "figures/GOM_bath_map2.png")
+
+
+
+#combine chl an dbath rasters
+
+bath_m_raster=marmap::as.raster(bath_m_raw)
+chl_GOM_raster
+bath_m_raster 
+
+#resampling 
+names(bath_m_raster)="bath_m"
+
+bath_layer_chl_dims = raster::resample(bath_m_raster, chl_GOM_raster)
+raster_stack = stack(chl_GOM_raster, bath_layer_chl_dims)
+plot(raster_stack)
+
+
+stack_df = data.frame( raster::rasterToPoints(raster_stack))
+head(stack_df)
+
+
+#O'Reilley 2019
+oligo_chl_a = 0.1
+eutro_chl_a = 1.67  #mg/m^3
+
+stack_df = stack_df %>%
+  mutate(trophic_index = case_when(chl_a < oligo_chl_a ~ "oligotrophic",
+                                   chl_a >= oligo_chl_a & chl_a <= eutro_chl_a ~ "mesotrophic",
+                                   chl_a > eutro_chl_a ~ "eutrophic")) %>%
+  mutate(trophic_index = as.factor(trophic_index))
+
+head(stack_df)
+summary(stack_df)
+table(stack_df$trophic_index)
+
+ggplot()+
+  geom_histogram(aes(x=bath_m), data=stack_df)+
+  facet_wrap(~trophic_index)
+
+#map the trophic index
+
+trophic_map = ggplot()+
+  geom_raster(data = stack_df, aes(x=x, y=y, fill=trophic_index))+
+  geom_polygon(data=world_map, aes(x=long, y=lat, group=group), fill="darkgrey", color=NA)+
+  coord_fixed(1.3, xlim=lon_bounds, ylim=lat_bounds, expand=FALSE) 
+ggsave(trophic_map, file ="figures/troph_map.png")
+#yayyyyyy it worked 
+
+
+
+
